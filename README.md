@@ -4,6 +4,7 @@
 #### Example:
 ```rust
 use goatdb::GoatDb;
+
 fn main() {
     let mut db = GoatDb::new("example.db");
     db.set("hello", &String::from("world"));
