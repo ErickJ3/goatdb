@@ -2,7 +2,6 @@
 ## _This is a joke database_
 
 #### Example:
-&nbsp;
 ```rust
 use goatdb::GoatDb;
 fn main() {
