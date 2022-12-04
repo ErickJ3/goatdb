@@ -12,3 +12,9 @@ fn main() {
     println!("result: {}", value);
 }
 ```
+
+### Output:
+
+```shell
+result: "world"
+```
