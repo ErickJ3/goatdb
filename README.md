@@ -1,7 +1,7 @@
 # GoatDB
 ## _This is a joke database_
 
-##### Example:
+#### Example:
 &nbsp;
 ```rust
 use goatdb::GoatDb;
