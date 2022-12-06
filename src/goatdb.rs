@@ -16,6 +16,12 @@ impl GoatDb {
         let mut db_path_buf = PathBuf::new();
         db_path_buf.push(db_path);
 
+        let exist = Path::new(&db_path_buf).exists();
+
+        if exist == false {
+            fs::File::create(&db_path_buf).unwrap();
+        }
+
         let mut map_database: HashMap<String, Vec<u8>> = HashMap::new();
 
         let load_data = match self::GoatDb::load_data(db_path_buf.clone()) {
