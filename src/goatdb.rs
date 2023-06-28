@@ -1,8 +1,8 @@
 use serde::Serialize;
 use std::{
     collections::HashMap,
-    fs::{self},
-    io::{self, ErrorKind},
+    fs::{self, File},
+    io::{self, ErrorKind, Read},
     path::{Path, PathBuf},
 };
 
@@ -16,30 +16,24 @@ impl GoatDb {
         let mut db_path_buf = PathBuf::new();
         db_path_buf.push(db_path);
 
-        let exist = Path::new(&db_path_buf).exists();
+        let exist = db_path_buf.exists();
 
-        if exist == false {
-            fs::File::create(&db_path_buf).unwrap();
+        if !exist {
+            File::create(&db_path_buf).expect("Failed to create database file");
         }
 
-        let mut map_database: HashMap<String, Vec<u8>> = HashMap::new();
-
-        let load_data = match self::GoatDb::load_data(db_path_buf.clone()) {
+        let load_data = match Self::load_data(db_path_buf.clone()) {
             Ok(data) => data,
             Err(err) => panic!("{}", err),
         };
 
-        for (key, value) in load_data.iter() {
-            map_database.insert(key.to_string(), value.to_vec());
-        }
-
-        let map_db = match load_data.is_empty() {
-            true => HashMap::new(),
-            false => load_data,
-        };
+        let map_database = load_data
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_vec()))
+            .collect();
 
         GoatDb {
-            map: map_db,
+            map: map_database,
             db_file_path: db_path_buf,
         }
     }
@@ -48,60 +42,48 @@ impl GoatDb {
     where
         V: Serialize,
     {
-        let binding = serde_json::to_string(value).unwrap();
-        let data = binding.as_bytes();
+        self.map
+            .insert(key.to_string(), serde_json::to_vec(value).unwrap());
 
-        self.map.insert(String::from(key), data.to_vec());
+        let json_map: HashMap<&str, &str> = self
+            .map
+            .iter()
+            .map(|(key, value)| (key.as_str(), std::str::from_utf8(value).unwrap()))
+            .collect();
 
-        let mut json_map: HashMap<&str, &str> = HashMap::new();
+        let serde_json_data = serde_json::to_string(&json_map).unwrap();
 
-        for (key, value) in self.map.iter() {
-            json_map.insert(key, std::str::from_utf8(value).unwrap());
-        }
-
-        let serde_json_data = serde_json::to_string(&(json_map)).unwrap();
-
-        match fs::write(&self.db_file_path, serde_json_data) {
-            Ok(_) => (),
-            Err(err) => println!("error: {}", err),
+        if let Err(err) = fs::write(&self.db_file_path, serde_json_data) {
+            println!("error: {}", err);
         }
     }
 
     pub fn get(&self, key: &str) -> Option<String> {
-        let value: Option<Vec<u8>> = match self.map.get(key) {
-            Some(data) => Some(data.to_vec()),
-            _ => None,
-        };
+        let value = self.map.get(key).map(|data| data.to_vec());
 
-        if let None = value {
-            Some(String::from("key not exist"))
-        } else {
-            let value_vec = value.unwrap();
-
-            let value_to_utf8 = std::str::from_utf8(&value_vec).unwrap();
-
-            let deserialize = value_to_utf8.to_string();
-
-            Some(deserialize)
-        }
+        value
+            .and_then(|value_vec| {
+                std::str::from_utf8(&value_vec)
+                    .ok()
+                    .map(|value_utf8| value_utf8.to_string())
+            })
+            .or_else(|| Some(String::from("key not exist")))
     }
 
     fn load_data(db_file_path: PathBuf) -> Result<HashMap<String, Vec<u8>>, io::Error> {
-        let content = fs::read(db_file_path).unwrap();
+        let mut content = Vec::new();
+        File::open(db_file_path)?.read_to_end(&mut content)?;
 
         if content.is_empty() {
             return Ok(HashMap::new());
         }
 
-        match serde_json::from_str::<HashMap<String, String>>(
-            std::str::from_utf8(&content).unwrap(),
-        ) {
+        match serde_json::from_slice::<HashMap<String, String>>(&content) {
             Ok(json_map) => {
-                let mut byte_map = HashMap::new();
-
-                for (key, value) in json_map.iter() {
-                    byte_map.insert(key.to_string(), value.as_bytes().to_vec());
-                }
+                let byte_map = json_map
+                    .iter()
+                    .map(|(key, value)| (key.to_string(), value.as_bytes().to_vec()))
+                    .collect();
 
                 Ok(byte_map)
             }
@@ -111,5 +93,42 @@ impl GoatDb {
                 "error in load database!",
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_set_and_get() {
+        let db_path = "test_db.json";
+        let mut goat_db = GoatDb::new(db_path);
+
+        goat_db.set("key1", &42);
+        goat_db.set("key2", &"value");
+
+        assert_eq!(goat_db.get("key1"), Some("42".to_string()));
+        assert_eq!(goat_db.get("key2"), Some("\"value\"".to_string()));
+        assert_eq!(goat_db.get("key3"), Some("key not exist".to_string()));
+    }
+
+    #[test]
+    fn test_get_nonexistent_key() {
+        let db_path = "test_db.json";
+        let goat_db = GoatDb::new(db_path);
+
+        assert_eq!(
+            goat_db.get("nonexistent_key"),
+            Some("key not exist".to_string())
+        );
+    }
+
+    #[test]
+    fn test_load_empty_db() {
+        let db_path = "empty_db.json";
+        let goat_db = GoatDb::new(db_path);
+
+        assert_eq!(goat_db.get("any_key"), Some("key not exist".to_string()));
     }
 }
